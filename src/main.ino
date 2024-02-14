@@ -24,7 +24,7 @@
 const int tempCycle = 2000;                 // Temperature reading cycle
 const int espnowCycle = 2500;               // EspNow transmit cycle
 const int maxTemp = 1040;                   // Maximum temperature (degrees).  If reached, will shut down.
-const int pidCycle = 60000;                 // Sample time of PID (how often Output is calculated in mS).
+const int pidCycle = 30000;                 // Sample time of PID (how often Output is calculated in mS).
 double Kp = 0.5, Ki = 1, Kd = 0.08;         // PID constants (tunings), VERY IMPORTANT TO GET THEM RIGHT.
 const int tempOffset = 0;                   // Temp offset (degrees) of thermocouplecouple, either from a cold zone or exernal factors. This is added to the input.
 const int tempRange = 2;                    // This is how close the temp reading needs to be to the set point to shift to the hold phase (degrees).  Set to zero or a positive integer.
@@ -515,8 +515,7 @@ void loop() {
     }
 
     // Update PID's / turn on heaters / update segment info
-    // if (millis - t) >= pidCycle ?
-    updatePIDs(); // will it affect output every second or every cycle?
+    updatePIDs(); // pid cycle time is already in class
     fireControl();
     updateSeg();
   }
@@ -548,9 +547,21 @@ void loop() {
 //  FIRECONTROL: TURN FB, FA & FSA VALVES ON/OFF
 //******************************************************************************************************************************
 void fireControl() {
+  static bool soaking = false;
   FB = HIGH; // MUST ALWAYS HAVE FUEGO BAJO
   
-  if (programMode == "AUTOMATIC") {
+  if (programMode == "AUTOMATIC" || soaking) {
+    if (soaking) {
+      // Update the PID controller based on new variables
+      pidCont.Compute();
+      // Only do 5 minutes
+      if ( millis() - startTime >= 5*60*1000) { 
+        startTime = 0;
+        soaking = false;
+        fireOff();
+      }
+    }
+
     if (pidOutput >= 70) {
       FSA = HIGH;   // fuego super alto ON
       FA = HIGH;    // fuego alto ON
@@ -565,24 +576,16 @@ void fireControl() {
     }
   }
 
-  if (programMode == "MANUAL") {
+  if (programMode == "MANUAL" && !soaking) {
     // temporary: start timer when temp is reached
     if (pidInput >= max(FAend, FSAend)) {
-      startTime = millis(); // must be initialized at 0 in setup
+      startTime = millis();
+      // start soaking at SV = PV
+      soaking = true;
+      setupPIDs(HIGH);
+      pidSetPoint = pidInput;
     }
-   
-    // Soak time (5min at FB)
-    if (startTime > 0) {
-      // Serial.printf("Elapsed time: %lu ms \n", (millis() - startTime));
-      FA = LOW;
-      FSA = LOW;
-    
-      if ( millis() - startTime >= 5*60*1000) { 
-        startTime = 0;
-        fireOff();
-      }
-    }
-    
+
     // not soaking
     else {
       // Fuego alto
@@ -1012,10 +1015,6 @@ void updateSeg() {
   // Check if complete: turn off fire, PIDs and go to intro screen
   if (segNum - 1 > segQuantity) {
     fireOff();
-    setupPIDs(LOW);
-    segNum = 0;
-    screen = "intro";
-    resetTFT(); // fight EMI
   }
 }
 
@@ -1023,7 +1022,6 @@ void updateSeg() {
 //  FIREOFF: EXTINGUISH KILN FIRE
 //******************************************************************************************************************************
 void fireOff() {
-  Serial.println("fire Off");
   // Turn off gas contactor
   shift_register.set(gasPin, LOW);
    
@@ -1033,6 +1031,11 @@ void fireOff() {
   shift_register.set(faPin, FA);
   shift_register.set(fsaPin, FSA);
   
+  // Turn of PID if needed
+  if (programMode == "AUTOMATIC") {
+    setupPIDs(LOW);
+  }
+
   // Reset display and logic
   segNum = 0;
   screen = "intro";
