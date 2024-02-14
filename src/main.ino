@@ -1100,7 +1100,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   // memcpy data to appropiate struct
-  if (memcmp(macStr, ESP32_2, sizeof(ESP32_2)) == 0) {
+  if (memcmp(mac_addr, ESP32_2, sizeof(ESP32_2)) == 0) {
     Serial.printf("\n Packet received from: %s,   AKA ESP32 #2\n", macStr);
     memcpy(&DPT_E, incomingData, sizeof(DPT_E));
     Serial.printf("\n Message length: %u bytes\n", len);   
@@ -1108,7 +1108,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     DPT_E.p[0], DPT_E.p[1], DPT_E.p[2], DPT_E.p[3]);
     ESP32_2_msgTime = millis();
   }
-  if (memcmp(macStr, ESP32_3, sizeof(ESP32_3)) == 0) {
+  if (memcmp(mac_addr, ESP32_3, sizeof(ESP32_3)) == 0) {
     Serial.printf("\n Packet received from: %s,   AKA ESP32 #3\n", macStr);
     memcpy(&DPT_W, incomingData, sizeof(DPT_W));
     Serial.printf("\n Message length: %u bytes\n", len);  
