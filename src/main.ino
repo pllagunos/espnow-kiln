@@ -118,8 +118,10 @@ int coolingSel = 1;                   // Option selected from cooling screen
 bool rangeScreen = false;             // is it on the range screen
 bool adjustRange = false;             // boolean to adjust range
 unsigned long startTime = 0;
-bool ESP32_2_isOK;     
-bool ESP32_3_isOK;
+volatile bool ESP32_2_isOK;     
+volatile bool ESP32_3_isOK;
+volatile bool dataSent = false;
+int fails = 0;
 
 //******************************************************************************************************************************
 //  SETUP: INITIAL SETUP (RUNS ONCE DURING START)
@@ -131,15 +133,18 @@ Preferences preferences;
 Adafruit_MAX31856 thermocouple(thermocoupleCS);
 ShiftRegisterSPI<1> shift_register(shiftregisterCS);
 
-DPT_message DPT_W;
-DPT_message DPT_E;
-kiln_message Kiln;
-chimney_message chimney;
+volatile DPT_message DPT_W;
+volatile DPT_message DPT_E;
+volatile kiln_message Kiln;
+volatile chimney_message chimney;
 
 void setup() {
   Serial.begin(115200);
   SPI.begin();
 
+  Serial.print("ESP Board MAC Address:  ");
+  Serial.println(WiFi.macAddress());
+  
   // setup and retrieve data from EEPROM
   preferences.begin("my-app", false);
   FAstart = preferences.getInt("FAstart", 350);
@@ -530,8 +535,13 @@ void loop() {
     Kiln.Output = pidOutput; //(int)pidOutput
     
     esp_err_t result = esp_now_send(ESP32_3, (uint8_t *) &Kiln, sizeof(Kiln));
-    if (result != ESP_OK) Serial.println("Error sending the data");
-    
+    if (result != ESP_OK) {
+      Serial.println("Error sending the data");
+      Serial.println((uint32_t)result, HEX); 
+      Serial.println(esp_err_to_name(result));
+      dataSent = false; // immediate failure to send
+    }
+
     espnowStart = millis();
   }
 
@@ -541,6 +551,15 @@ void loop() {
   if (millis() - ESP32_3_msgTime >= EspNowTimeOut)  ESP32_3_isOK = false;
   else                                              ESP32_3_isOK = true;
   
+  // check if esp-now network changed channel
+  if (!ESP32_2_isOK || !ESP32_3_isOK) {
+    fails += 1;
+  }
+  if (fails > 4) {
+    Serial.println("reinitializing wifi chanel");  
+    initWiFi();
+    fails = 0;
+  }
 }
 
 //******************************************************************************************************************************
@@ -1101,20 +1120,20 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   // memcpy data to appropiate struct
   if (memcmp(mac_addr, ESP32_2, sizeof(ESP32_2)) == 0) {
-    Serial.printf("\n Packet received from: %s,   AKA ESP32 #2\n", macStr);
-    memcpy(&DPT_E, incomingData, sizeof(DPT_E));
-    Serial.printf("\n Message length: %u bytes\n", len);   
-    Serial.printf("\n Presiones recibidas: \n NEG: %.2f in. WC \n NEA: %.2f in. WC \n SEG: %.2f in. WC \n SEA: %.2f in. WC \n",
-    DPT_E.p[0], DPT_E.p[1], DPT_E.p[2], DPT_E.p[3]);
+    // Serial.printf("\n Packet received from: %s,   AKA ESP32 #2\n", macStr);
+    copyToVolatile(&DPT_E, incomingData, sizeof(DPT_E));
+    // Serial.printf("\n Message length: %u bytes\n", len);   
+    // Serial.printf("\n Presiones recibidas: \n NEG: %.2f in. WC \n NEA: %.2f in. WC \n SEG: %.2f in. WC \n SEA: %.2f in. WC \n",
+    // DPT_E.p[0], DPT_E.p[1], DPT_E.p[2], DPT_E.p[3]);
     ESP32_2_msgTime = millis();
   }
   if (memcmp(mac_addr, ESP32_3, sizeof(ESP32_3)) == 0) {
-    Serial.printf("\n Packet received from: %s,   AKA ESP32 #3\n", macStr);
-    memcpy(&DPT_W, incomingData, sizeof(DPT_W));
-    Serial.printf("\n Message length: %u bytes\n", len);  
-    Serial.printf("\n Presiones recibidas: \n NWG: %.2f in. WC \n NWA: %.2f in. WC \n SWG: %.2f in. WC \n SWA: %.2f in. WC \n",
-    DPT_W.p[0], DPT_W.p[1], DPT_W.p[2], DPT_W.p[3]);
-    ESP32_3_msgTime = millis();
+    // Serial.printf("\n Packet received from: %s,   AKA ESP32 #3\n", macStr);
+    copyToVolatile(&DPT_W, incomingData, sizeof(DPT_W));
+    // Serial.printf("\n Message length: %u bytes\n", len);  
+    // Serial.printf("\n Presiones recibidas: \n NWG: %.2f in. WC \n NWA: %.2f in. WC \n SWG: %.2f in. WC \n SWA: %.2f in. WC \n",
+    // DPT_W.p[0], DPT_W.p[1], DPT_W.p[2], DPT_W.p[3]);
+    if (dataSent) ESP32_3_msgTime = millis();
   }
 }
 
@@ -1126,8 +1145,14 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);         
-  Serial.printf("\n Packet sent to: %s send status:\t %s", macStr, status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail" );
-  //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  if (memcmp(mac_addr, ESP32_2, sizeof(mac_addr)) == 0) {
+    Serial.printf("\n Packet sent to ESP32 #2\t status:\t %s\n", status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail" );
+  }
+  if (memcmp(mac_addr, ESP32_3, sizeof(mac_addr)) == 0) {
+    Serial.printf("\n Packet sent to ESP32 #3\t status:\t %s\n", status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail" );
+    // Update dataSent based on the callback status (esp#2 doesn't get frequent sends)
+    dataSent = (status == ESP_NOW_SEND_SUCCESS);
+  }
 }
 
 //******************************************************************************************************************************
@@ -1299,6 +1324,18 @@ void initEspNow() {
   // ***** Register Send CB and Recv CB *****
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
+}
+
+//******************************************************************************************************************************
+// copyToVolatile: Function to safely copy data to a volatile destination
+//******************************************************************************************************************************
+void copyToVolatile(volatile void* dest, const void* src, size_t n) {
+  // Correctly cast away 'volatile' before casting the type
+  uint8_t* d = reinterpret_cast<uint8_t*>(const_cast<void*>(dest));
+  const uint8_t* s = reinterpret_cast<const uint8_t*>(src);
+  while (n--) {
+      *d++ = *s++;
+  }
 }
 
 //******************************************************************************************************************************
