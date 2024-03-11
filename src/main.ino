@@ -120,8 +120,8 @@ bool adjustRange = false;             // boolean to adjust range
 unsigned long startTime = 0;
 volatile bool ESP32_2_isOK;     
 volatile bool ESP32_3_isOK;
-volatile bool dataSent = false;
-int fails = 0;
+volatile bool dataSent_ESP2 = false;
+volatile bool dataSent_ESP3 = false;
 
 //******************************************************************************************************************************
 //  SETUP: INITIAL SETUP (RUNS ONCE DURING START)
@@ -539,7 +539,7 @@ void loop() {
       Serial.println("Error sending the data");
       Serial.println((uint32_t)result, HEX); 
       Serial.println(esp_err_to_name(result));
-      dataSent = false; // immediate failure to send
+      dataSent_ESP3 = false; // immediate failure to send
     }
 
     espnowStart = millis();
@@ -551,15 +551,16 @@ void loop() {
   if (millis() - ESP32_3_msgTime >= EspNowTimeOut)  ESP32_3_isOK = false;
   else                                              ESP32_3_isOK = true;
   
-  // check if esp-now network changed channel
-  if (!ESP32_2_isOK || !ESP32_3_isOK) {
-    fails += 1;
-  }
-  if (fails > 4) {
-    Serial.println("reinitializing wifi chanel");  
-    initWiFi();
-    fails = 0;
-  }
+  // MAKE THIS WORK IN FUTURE
+  // check if esp-now network changed channel 
+  // if (!ESP32_2_isOK || !ESP32_3_isOK) {
+  //   fails += 1;
+  // }
+  // if (fails > 4) {
+  //   Serial.println("reinitializing wifi chanel");  
+  //   initWiFi();
+  //   fails = 0;
+  // }
 }
 
 //******************************************************************************************************************************
@@ -1068,17 +1069,24 @@ void fireOff() {
     shift_register.set(airPin, HIGH); // equivalent to pressing normally closed OFF button
   }
   
-  // Open chimney
+    // Open chimney
   chimney.OPEN = true;
-  esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
-  delay(500);
-  esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
-  delay(500);
-  esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
-  delay(1000);
-  chimney.OPEN = false;
+
+  // send data
   esp_err_t result = esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
-  if (result != ESP_OK) Serial.println("Error sending the data");
+  while (result != ESP_OK || !dataSent_ESP2) {
+    result = esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
+    delay(100);    
+  }
+  
+  // Reset message status
+  chimney.OPEN = false;
+
+  result = esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
+  while (result != ESP_OK || !dataSent_ESP2) {
+    result = esp_now_send(ESP32_2, (uint8_t *) &chimney, sizeof(chimney));
+    delay(100);    
+  }
 }
 
 //******************************************************************************************************************************
@@ -1120,20 +1128,18 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   // memcpy data to appropiate struct
   if (memcmp(mac_addr, ESP32_2, sizeof(ESP32_2)) == 0) {
-    // Serial.printf("\n Packet received from: %s,   AKA ESP32 #2\n", macStr);
+    // Serial.printf("\n Packet received from ESP32 #2 \t message lenght: %u bytes\n", len);
     copyToVolatile(&DPT_E, incomingData, sizeof(DPT_E));
-    // Serial.printf("\n Message length: %u bytes\n", len);   
     // Serial.printf("\n Presiones recibidas: \n NEG: %.2f in. WC \n NEA: %.2f in. WC \n SEG: %.2f in. WC \n SEA: %.2f in. WC \n",
     // DPT_E.p[0], DPT_E.p[1], DPT_E.p[2], DPT_E.p[3]);
     ESP32_2_msgTime = millis();
   }
   if (memcmp(mac_addr, ESP32_3, sizeof(ESP32_3)) == 0) {
-    // Serial.printf("\n Packet received from: %s,   AKA ESP32 #3\n", macStr);
+    // Serial.printf("\n Packet received from ESP32 #3 \t message lenght: %u bytes\n", len);
     copyToVolatile(&DPT_W, incomingData, sizeof(DPT_W));
-    // Serial.printf("\n Message length: %u bytes\n", len);  
     // Serial.printf("\n Presiones recibidas: \n NWG: %.2f in. WC \n NWA: %.2f in. WC \n SWG: %.2f in. WC \n SWA: %.2f in. WC \n",
     // DPT_W.p[0], DPT_W.p[1], DPT_W.p[2], DPT_W.p[3]);
-    if (dataSent) ESP32_3_msgTime = millis();
+    if (dataSent_ESP3) ESP32_3_msgTime = millis();
   }
 }
 
@@ -1141,18 +1147,18 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 //  ONDATASENT: CALLBACK FUNCTION WHEN DATA IS SENT
 //******************************************************************************************************************************
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  // Get mac address from receiver
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);         
+
   if (memcmp(mac_addr, ESP32_2, sizeof(mac_addr)) == 0) {
     Serial.printf("\n Packet sent to ESP32 #2\t status:\t %s\n", status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail" );
+    // Update dataSent based on CB status
+    dataSent_ESP2 = (status == ESP_NOW_SEND_SUCCESS);
   }
   if (memcmp(mac_addr, ESP32_3, sizeof(mac_addr)) == 0) {
     Serial.printf("\n Packet sent to ESP32 #3\t status:\t %s\n", status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail" );
-    // Update dataSent based on the callback status (esp#2 doesn't get frequent sends)
-    dataSent = (status == ESP_NOW_SEND_SUCCESS);
+    // Update dataSent based on CB status
+    dataSent_ESP3 = (status == ESP_NOW_SEND_SUCCESS);
   }
+
 }
 
 //******************************************************************************************************************************
