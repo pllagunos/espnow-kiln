@@ -27,6 +27,8 @@ The controller firmware is written for an ESP32 DevKit using:
 
 The peripheral nodes are also ESP32-based and use analog inputs for pressure transducers. The telemetry node additionally uses Wi-Fi for cloud upload and a small OLED for status display.
 
+See `hardware/` for more info and design files.
+
 ## Software Stack
 
 - PlatformIO + Arduino framework for the controller.
@@ -44,20 +46,7 @@ Controller build environment:
 
 ### 1. Build the controller
 
-The main controller is a PlatformIO project:
-
-```bash
-cd controller
-pio run
-```
-
-To flash and monitor:
-
-```bash
-cd controller
-pio run --target upload
-pio device monitor
-```
+The main controller is a PlatformIO project. Use the vscode extension to flash and monitor the controller main.ino file to an esp32-devkit board
 
 ### 2. Flash the peripheral nodes
 
