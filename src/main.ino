@@ -579,6 +579,8 @@ void fireControl() {
         startTime = 0;
         soaking = false;
         fireOff();
+        
+        return;
       }
     }
 
