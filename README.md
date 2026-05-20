@@ -8,6 +8,11 @@ The project is split into three nodes:
 - DPT node (`ESP32 #2`): reads differential pressure transducers, drives the chimney output, and exchanges data over the ESP-NOW network.
 - Telemetry node (`ESP32 #3`): reads pressure data, shows local status on an OLED, receives kiln state from the network, and publishes telemetry to InfluxDB.
 
+<p align="center">
+	<img src="insidePanel.jpeg" alt="Controller" width="48%" />
+	<img src="Repetitor.jpeg" alt="Telemetry node" width="48%" />
+</p>
+
 ## Repository Layout
 
 - `controller/`: PlatformIO project for the main controller.
