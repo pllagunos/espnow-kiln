@@ -29,7 +29,7 @@ double Kp = 0.5, Ki = 1, Kd = 0.08;         // PID constants (tunings), VERY IMP
 const int tempOffset = 0;                   // Temp offset (degrees) of thermocouplecouple, either from a cold zone or exernal factors. This is added to the input.
 const int tempRange = 2;                    // This is how close the temp reading needs to be to the set point to shift to the hold phase (degrees).  Set to zero or a positive integer.
 const char tempScale = 'C';                 // Temperature scale.  F = Fahrenheit.  C = Celsius
-constexpr char WIFI_SSID[] = "FIX2.4";      // WiFi SSID
+constexpr char WIFI_SSID[] = "your-ssid";   // WiFi SSID
 max31856_thermocoupletype_t TCTYPE = MAX31856_TCTYPE_K;
 const int EspNowTimeOut = 10000;            // (ms) before espnow timeouts
 const int topCycle = 2500;                  // Top bar refresh cycle (ms)
